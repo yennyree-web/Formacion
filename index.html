@@ -1,0 +1,1142 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portal de Trabajo - Control Conectado</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #059669; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col antialiased relative">
+
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const GOOGLE_SHEETS_API_URL = "https://script.google.com/macros/s/AKfycbwLhH59xIOrTMyk1HDvX8hM2Zn5LIIU3anIXGVRcrlClM8YcW_VvY7tNyemhl2ce4vIgg/exec";
+
+    const COLABORADORES = [
+      { nombre: "Diosmary Cedeño", pin: "2345" },
+      { nombre: "Leonel Roman", pin: "6789" },
+      { nombre: "Luis Salas", pin: "0123" },
+      { nombre: "Maryorie Orellana", pin: "0456" },
+      { nombre: "Rebeca Ochoa", pin: "1234" },
+      { nombre: "Fredes De Paz", pin: "5678" },
+      { nombre: "Betsy Freire", pin: "9123" },
+      { nombre: "Maikelys Martinez", pin: "4567" },
+      { nombre: "Gabriel Rodriguez", pin: "8912" },
+      { nombre: "Isabel Cassino", pin: "3456" },
+      { nombre: "Gabriela Torres", pin: "7891" }
+    ];
+
+    const PROYECTOS = [
+      "Plataforma SIGMA",
+      "Red S3",
+      "Diseño Instruccional ATI",
+      "Diseño Grafico",
+      "Tamanaco",
+      "ACA"
+    ];
+
+    const formatearFechaHora = (fechaStr) => {
+      if (!fechaStr) return "";
+      try {
+        const dateObj = new Date(fechaStr);
+        if (isNaN(dateObj.getTime())) return fechaStr;
+        const dia = String(dateObj.getDate()).padStart(2, '0');
+        const mes = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const anio = dateObj.getFullYear();
+        const hora = String(dateObj.getHours()).padStart(2, '0');
+        const min = String(dateObj.getMinutes()).padStart(2, '0');
+        return `${dia}/${mes}/${anio} ${hora}:${min}`;
+      } catch (e) {
+        return fechaStr;
+      }
+    };
+
+    function App() {
+      const [tasks, setTasks] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      
+      const [role, setRole] = useState('none'); 
+      const [activeWorker, setActiveWorker] = useState('');
+      const [currentSupervisorData, setCurrentSupervisorData] = useState(null);
+      
+      const [selectedOfficeView, setSelectedOfficeView] = useState('OTC');
+
+      const [validadoresDinamicos, setValidadoresDinamicos] = useState(() => {
+        const localData = localStorage.getItem('tw_validadores');
+        return localData ? JSON.parse(localData) : [];
+      });
+
+      const [selectedWorkerPending, setSelectedWorkerPending] = useState(null);
+      const [workerPinInput, setWorkerPinInput] = useState('');
+      const [workerPinError, setWorkerPinError] = useState('');
+      const [pinInput, setPinInput] = useState('');
+      const [pinError, setPinError] = useState('');
+
+      const [showCreateModal, setShowCreateModal] = useState(false);
+      const [showBulkModal, setShowBulkModal] = useState(false);
+      const [bulkLoading, setBulkLoading] = useState(false);
+
+      const [showReportModal, setShowReportModal] = useState(false);
+      const [showCommentModal, setShowCommentModal] = useState(false);
+      const [showManagerModal, setShowManagerModal] = useState(false);
+      const [showDailyReportModal, setShowDailyReportModal] = useState(false);
+
+      const [fechaDesde, setFechaDesde] = useState(new Date().toISOString().split('T')[0]);
+      const [fechaHasta, setFechaHasta] = useState(new Date().toISOString().split('T')[0]);
+      const [reporteDiarioData, setReporteDiarioData] = useState([]);
+
+      const [reportProjectFilter, setReportProjectFilter] = useState('Todos');
+      const [reportWorkerFilter, setReportWorkerFilter] = useState('Todos');
+
+      const [selectedTask, setSelectedTask] = useState(null);
+      const [searchTerm, setSearchTerm] = useState('');
+      const [projectFilter, setProjectFilter] = useState('Todos');
+      const [statusFilter, setStatusFilter] = useState('Todos');
+      const [workerFilter, setWorkerFilter] = useState('Todos');
+      const [supervisorFilter, setSupervisorFilter] = useState('Todos');
+
+      const [nuevoValidador, setNuevoValidador] = useState({
+        nombreValidador: COLABORADORES[0].nombre,
+        pin: '',
+        asignados: []
+      });
+
+      const [newTask, setNewTask] = useState({
+        oficina: 'OTC',
+        project: PROYECTOS[0],
+        accionEspecifica: '',
+        title: '',
+        producto: '',
+        worker: COLABORADORES[0].nombre,
+        startDate: new Date().toISOString().split('T')[0],
+        endDate: '',
+        tiempoEjecucion: ''
+      });
+
+      const [reportData, setReportData] = useState({
+        status: 'Pendiente',
+        dailyAdvance: '',
+        observation: '',
+        adjunto: '',
+        tiempoEjecucion: ''
+      });
+
+      const [supervisorCommentText, setSupervisorCommentText] = useState('');
+
+      useEffect(() => {
+        localStorage.setItem('tw_validadores', JSON.stringify(validadoresDinamicos));
+      }, [validadoresDinamicos]);
+
+      const fetchTasks = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+          const response = await fetch(GOOGLE_SHEETS_API_URL);
+          if (!response.ok) throw new Error("Error al consultar la API.");
+          const data = await response.json();
+          setTasks(Array.isArray(data) ? data : []);
+        } catch (err) {
+          console.error(err);
+          setError("Error en la sincronización.");
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      useEffect(() => {
+        if (GOOGLE_SHEETS_API_URL !== "TU_URL_AQUI") {
+          fetchTasks();
+        }
+      }, []);
+
+      const fetchReporteDiario = async (desdeCustom, hastaCustom) => {
+        try {
+          const d = desdeCustom || fechaDesde;
+          const h = hastaCustom || fechaHasta;
+          const baseUrl = GOOGLE_SHEETS_API_URL.split('?')[0];
+          const urlConsulta = `${baseUrl}?action=getReporteDiario&desde=${d}&hasta=${h}`;
+
+          const response = await fetch(urlConsulta);
+          const data = await response.json();
+
+          setReporteDiarioData(Array.isArray(data) ? data : []);
+          setReportProjectFilter('Todos');
+          setReportWorkerFilter('Todos');
+          setShowDailyReportModal(true);
+        } catch (err) {
+          alert("Error al cargar el reporte: " + err.message);
+        }
+      };
+
+      const downloadPDF = () => {
+        if (reporteDiarioData.length === 0) {
+          alert("No hay datos para exportar en el rango seleccionado.");
+          return;
+        }
+
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+
+        doc.setFontSize(16);
+        doc.setTextColor(15, 23, 42);
+        doc.text("Reporte Diario de Actividades", 14, 20);
+
+        doc.setFontSize(10);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`Desde: ${fechaDesde}  Hasta: ${fechaHasta}`, 14, 28);
+
+        const dataFiltradaExport = reporteDiarioData.filter(r => {
+          const projVal = r.proyecto || r.project || "";
+          const workVal = r.responsable || r.worker || "";
+          const matchProj = reportProjectFilter === 'Todos' || projVal === reportProjectFilter;
+          const matchWork = reportWorkerFilter === 'Todos' || workVal === reportWorkerFilter;
+          return matchProj && matchWork;
+        });
+
+        const tableColumn = ["Oficina", "Fecha / Hora", "Proyecto", "Acción Específica", "Actividad", "Responsable", "Estatus"];
+        const tableRows = dataFiltradaExport.map(r => [
+          r.oficina || "OTC",
+          formatearFechaHora(r.fecha || r.lastUpdated || ""),
+          r.proyecto || r.project || "",
+          r.accionEspecifica || "",
+          r.title || r.actividad || "",
+          r.responsable || r.worker || "",
+          r.estatus || r.status || ""
+        ]);
+
+        doc.autoTable({
+          head: [tableColumn],
+          body: tableRows,
+          startY: 35,
+          theme: 'grid',
+          styles: { fontSize: 7, cellPadding: 2.5 },
+          headStyles: { fillColor: [79, 70, 229] }
+        });
+
+        doc.save(`Reporte_Desde_${fechaDesde}_Hasta_${fechaHasta}.pdf`);
+      };
+
+      const downloadODS = () => {
+        if (reporteDiarioData.length === 0) {
+          alert("No hay datos para exportar en el rango seleccionado.");
+          return;
+        }
+
+        const dataFiltradaExport = reporteDiarioData.filter(r => {
+          const projVal = r.proyecto || r.project || "";
+          const workVal = r.responsable || r.worker || "";
+          const matchProj = reportProjectFilter === 'Todos' || projVal === reportProjectFilter;
+          const matchWork = reportWorkerFilter === 'Todos' || workVal === reportWorkerFilter;
+          return matchProj && matchWork;
+        });
+
+        let xmlContent = '<?xml version="1.0" encoding="UTF-8"?>\n';
+        xmlContent += '<?mso-application progid="Excel.Sheet"?>\n';
+        xmlContent += '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"\n';
+        xmlContent += ' xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n';
+        xmlContent += '<Styles>\n';
+        xmlContent += '<Style ss:ID="Header">\n';
+        xmlContent += '<Font ss:Bold="1" ss:Color="#FFFFFF"/>\n';
+        xmlContent += '<Interior ss:Color="#4F46E5" ss:Pattern="Solid"/>\n';
+        xmlContent += '</Style>\n';
+        xmlContent += '</Styles>\n';
+        xmlContent += '<Worksheet ss:Name="Reporte Diario">\n';
+        xmlContent += '<Table>\n';
+
+        xmlContent += '<Row><Cell ss:StyleID="Header"><Data ss:Type="String">Oficina</Data></Cell>' +
+                    '<Cell ss:StyleID="Header"><Data ss:Type="String">Fecha / Hora</Data></Cell>' +
+                    '<Cell ss:StyleID="Header"><Data ss:Type="String">Proyecto</Data></Cell>' +
+                    '<Cell ss:StyleID="Header"><Data ss:Type="String">Acción Específica</Data></Cell>' +
+                    '<Cell ss:StyleID="Header"><Data ss:Type="String">Actividad</Data></Cell>' +
+                    '<Cell ss:StyleID="Header"><Data ss:Type="String">Responsable</Data></Cell>' +
+                    '<Cell ss:StyleID="Header"><Data ss:Type="String">Estatus</Data></Cell></Row>\n';
+
+        dataFiltradaExport.forEach(r => {
+          const oficinaVal = String(r.oficina || "OTC").replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const fechaVal = String(formatearFechaHora(r.fecha || r.lastUpdated || "")).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const proyectoVal = String(r.proyecto || r.project || "").replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const accionVal = String(r.accionEspecifica || "").replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const actividadVal = String(r.title || r.actividad || "").replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const responsableVal = String(r.responsable || r.worker || "").replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const estatusVal = String(r.estatus || r.status || "").replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+          xmlContent += `<Row>` +
+                        `<Cell><Data ss:Type="String">${oficinaVal}</Data></Cell>` +
+                        `<Cell><Data ss:Type="String">${fechaVal}</Data></Cell>` +
+                        `<Cell><Data ss:Type="String">${proyectoVal}</Data></Cell>` +
+                        `<Cell><Data ss:Type="String">${accionVal}</Data></Cell>` +
+                        `<Cell><Data ss:Type="String">${actividadVal}</Data></Cell>` +
+                        `<Cell><Data ss:Type="String">${responsableVal}</Data></Cell>` +
+                        `<Cell><Data ss:Type="String">${estatusVal}</Data></Cell>` +
+                        `</Row>\n`;
+        });
+
+        xmlContent += '</Table>\n</Worksheet>\n</Workbook>';
+
+        const blob = new Blob([xmlContent], { type: 'application/vnd.oasis.opendocument.spreadsheet;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Reporte_Desde_${fechaDesde}_Hasta_${fechaHasta}.ods`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      };
+
+      const saveTaskToSheets = async (taskData) => {
+        try {
+          const payload = { action: "create", ...taskData };
+          const response = await fetch(GOOGLE_SHEETS_API_URL, {
+            method: "POST",
+            mode: "cors",
+            headers: { "Content-Type": "text/plain" },
+            body: JSON.stringify(payload)
+          });
+          const result = await response.json();
+          if (result.status === "success") {
+            await fetchTasks();
+          }
+        } catch (err) {
+          alert("Error al crear: " + err.message);
+        }
+      };
+
+      const updateTaskInSheets = async (taskId, updatedFields) => {
+        try {
+          const payload = { action: "update", id: taskId, ...updatedFields };
+          await fetch(GOOGLE_SHEETS_API_URL, {
+            method: "POST",
+            mode: "cors",
+            headers: { "Content-Type": "text/plain" },
+            body: JSON.stringify(payload)
+          });
+        } catch (err) {
+          console.error("Error al guardar en Sheets:", err);
+        }
+      };
+
+      const saveSupervisorComment = async (taskId, commentText) => {
+        try {
+          const payload = { action: "comment", id: taskId, supervisorComments: commentText };
+          const response = await fetch(GOOGLE_SHEETS_API_URL, {
+            method: "POST",
+            mode: "cors",
+            headers: { "Content-Type": "text/plain" },
+            body: JSON.stringify(payload)
+          });
+          const result = await response.json();
+          if (result.status === "success") {
+            setTasks(prev => prev.map(t => t.id === taskId ? { ...t, supervisorComments: commentText, lastUpdated: new Date().toISOString() } : t));
+          }
+        } catch (err) {
+          alert("Error al guardar validación: " + err.message);
+        }
+      };
+
+      const deleteTaskFromSheets = async (taskId) => {
+        try {
+          const payload = { action: "delete", id: taskId };
+          await fetch(GOOGLE_SHEETS_API_URL, {
+            method: "POST",
+            mode: "cors",
+            headers: { "Content-Type": "text/plain" },
+            body: JSON.stringify(payload)
+          });
+          setTasks(prev => prev.filter(t => t.id !== taskId));
+        } catch (err) {
+          alert("Error al eliminar: " + err.message);
+        }
+      };
+
+      const handleSupervisorLogin = (e) => {
+        e.preventDefault();
+        const PINS_GERENCIA = {
+          "1214": "Yenny Lizarraga", // OTC
+          "5566": "Dulce Contreras",  // OGF
+          "6677": "Isabel Cassino",
+          "7788": "Supervisor"
+        };
+
+        if (PINS_GERENCIA[pinInput]) {
+          const nombreSup = PINS_GERENCIA[pinInput];
+          setRole('supervisor');
+          setActiveWorker('');
+          
+          if (nombreSup === "Dulce Contreras") {
+            setSelectedOfficeView('OGF');
+          } else if (nombreSup === "Yenny Lizarraga") {
+            setSelectedOfficeView('OTC');
+          }
+
+          setCurrentSupervisorData({ 
+            tipo: "Principal", 
+            titulo: `Monitoreo Global - ${nombreSup}`, 
+            asignados: "Todos" 
+          });
+          setPinError('');
+          setPinInput('');
+          return;
+        }
+
+        const matchSup = validadoresDinamicos.find(s => String(s.pin).trim() === String(pinInput).trim());
+        if (matchSup) {
+          setRole('supervisor');
+          setActiveWorker('');
+          setCurrentSupervisorData(matchSup);
+          setPinError('');
+          setPinInput('');
+        } else {
+          setPinError('PIN no reconocido.');
+        }
+      };
+
+      const handleWorkerPinSubmit = (e) => {
+        e.preventDefault();
+        if (!selectedWorkerPending) return;
+        if (workerPinInput === selectedWorkerPending.pin) {
+          setRole('trabajador');
+          setActiveWorker(selectedWorkerPending.nombre);
+          setCurrentSupervisorData(null);
+          setSelectedWorkerPending(null);
+          setWorkerPinInput('');
+        } else {
+          setWorkerPinError('PIN incorrecto.');
+        }
+      };
+
+      const handleCreateTask = (e) => {
+        e.preventDefault();
+        const taskData = {
+          oficina: newTask.oficina,
+          project: newTask.project,
+          accionEspecifica: newTask.accionEspecifica,
+          title: newTask.title,
+          producto: newTask.producto,
+          worker: newTask.worker,
+          startDate: newTask.startDate,
+          endDate: newTask.endDate,
+          tiempoEjecucion: newTask.tiempoEjecucion,
+          status: 'Pendiente',
+          dailyAdvance: '',
+          observation: '',
+          adjunto: ''
+        };
+        saveTaskToSheets(taskData);
+        setShowCreateModal(false);
+        setNewTask({ oficina: 'OTC', project: PROYECTOS[0], accionEspecifica: '', title: '', producto: '', worker: COLABORADORES[0].nombre, startDate: new Date().toISOString().split('T')[0], endDate: '', tiempoEjecucion: '' });
+      };
+
+      const handleAgregarValidador = (e) => {
+        e.preventDefault();
+        if (!nuevoValidador.pin.trim() || nuevoValidador.asignados.length === 0) {
+          alert("Por favor, ingresa un PIN y selecciona al menos un colaborador asignado.");
+          return;
+        }
+
+        const nuevoRegistro = {
+          tipo: `Validador Técnico (${nuevoValidador.nombreValidador.split(' ')[0]})`,
+          pin: nuevoValidador.pin.trim(),
+          titulo: `Panel de Validación de ${nuevoValidador.nombreValidador}`,
+          asignados: nuevoValidador.asignados
+        };
+
+        setValidadoresDinamicos(prev => {
+          const filtrados = prev.filter(v => v.pin !== nuevoValidador.pin);
+          return [...filtrados, nuevoRegistro];
+        });
+
+        setNuevoValidador({ nombreValidador: COLABORADORES[0].nombre, pin: '', asignados: [] });
+        alert("Estructura de validación guardada con éxito.");
+      };
+
+      const handleToggleAsignado = (nombre) => {
+        setNuevoValidador(prev => {
+          const yaAsignado = prev.asignados.includes(nombre);
+          return {
+            ...prev,
+            asignados: yaAsignado 
+              ? prev.asignados.filter(n => n !== nombre)
+              : [...prev.asignados, nombre]
+          };
+        });
+      };
+
+      const openReportModal = (task) => {
+        const taskClone = JSON.parse(JSON.stringify(task));
+        setSelectedTask(taskClone);
+        setReportData({
+          status: String(taskClone.status || 'Pendiente'),
+          dailyAdvance: String(taskClone.dailyAdvance || ''), 
+          observation: String(taskClone.observation || ''),
+          adjunto: String(taskClone.adjunto || ''),
+          tiempoEjecucion: String(taskClone.tiempoEjecucion || '')
+        });
+        setShowReportModal(true);
+      };
+
+      const handleSaveReport = (e) => {
+        e.preventDefault();
+        if (!selectedTask) return;
+
+        const targetId = selectedTask.id;
+        const updatedFields = {
+          status: reportData.status,
+          dailyAdvance: reportData.dailyAdvance,
+          observation: reportData.observation,
+          adjunto: reportData.adjunto,
+          tiempoEjecucion: reportData.tiempoEjecucion
+        };
+
+        updateTaskInSheets(targetId, updatedFields);
+
+        setTasks(prevTasks => prevTasks.map(t => {
+          if (String(t.id).replace(/[\s-]+/g, '').toUpperCase() === String(targetId).replace(/[\s-]+/g, '').toUpperCase()) {
+            return { ...t, ...updatedFields, lastUpdated: new Date().toISOString() };
+          }
+          return t;
+        }));
+
+        setShowReportModal(false);
+        setSelectedTask(null);
+      };
+
+      const openCommentModal = (task) => {
+        setSelectedTask(task);
+        setSupervisorCommentText(task.supervisorComments || '');
+        setShowCommentModal(true);
+      };
+
+      const handleSaveComment = (e) => {
+        e.preventDefault();
+        if (!selectedTask) return;
+        saveSupervisorComment(selectedTask.id, supervisorCommentText);
+        setShowCommentModal(false);
+        setSelectedTask(null);
+      };
+
+      let scopeTasks = tasks;
+      if (selectedOfficeView !== 'TODAS') {
+        scopeTasks = tasks.filter(t => {
+          let oficinaTarea = String(t.oficina || "").trim().toUpperCase();
+          if (oficinaTarea.includes("OGF")) oficinaTarea = "OGF";
+          else oficinaTarea = "OTC";
+          return oficinaTarea === selectedOfficeView.toUpperCase();
+        });
+      }
+
+      if (role === 'trabajador') {
+        scopeTasks = scopeTasks.filter(t => String(t.worker || t.responsable || "").trim().toLowerCase() === activeWorker.trim().toLowerCase());
+      } else if (role === 'supervisor' && currentSupervisorData && currentSupervisorData.asignados !== "Todos") {
+        scopeTasks = scopeTasks.filter(t => currentSupervisorData.asignados.includes(t.worker || t.responsable));
+      }
+
+      const filteredTasks = scopeTasks.filter(t => {
+        const projVal = t.project || t.proyecto || "";
+        const statVal = t.status || t.estatus || "";
+        const workerVal = t.worker || t.responsable || "";
+        
+        let supervisorAsignado = t.oficina === 'OGF' ? "Dulce Contrera" : "Yenny Lizarraga";
+
+        const matchProject = projectFilter === 'Todos' || projVal === projectFilter;
+        const matchStatus = statusFilter === 'Todos' || statVal === statusFilter;
+        const matchWorker = workerFilter === 'Todos' || workerVal === workerFilter;
+        const matchSupervisor = supervisorFilter === 'Todos' || supervisorAsignado === supervisorFilter;
+
+        const term = searchTerm.toLowerCase();
+        const matchSearch = searchTerm === '' || 
+          String(t.accionEspecifica || "").toLowerCase().includes(term) || 
+          String(t.title || t.actividad || "").toLowerCase().includes(term) || 
+          String(projVal).toLowerCase().includes(term) || 
+          String(workerVal).toLowerCase().includes(term);
+
+        return matchProject && matchStatus && matchWorker && matchSupervisor && matchSearch;
+      });
+
+      const stats = {
+        total: scopeTasks.filter(t => (t.status || t.estatus) !== 'Listo').length,
+        completadas: scopeTasks.filter(t => (t.status || t.estatus) === 'Listo').length,
+        enDesarrollo: scopeTasks.filter(t => (t.status || t.estatus) === 'En desarrollo').length,
+        bloqueadas: scopeTasks.filter(t => (t.status || t.estatus) === 'Retrasado').length,
+        pendientes: scopeTasks.filter(t => (t.status || t.estatus) === 'Pendiente').length
+      };
+
+      const reporteDiarioFiltrado = reporteDiarioData.filter(r => {
+        const projVal = r.proyecto || r.project || "";
+        const workVal = r.responsable || r.worker || "";
+        const matchProj = reportProjectFilter === 'Todos' || projVal === reportProjectFilter;
+        const matchWork = reportWorkerFilter === 'Todos' || workVal === reportWorkerFilter;
+        return matchProj && matchWork;
+      });
+
+      const reportStats = {
+        total: reporteDiarioFiltrado.length,
+        listo: reporteDiarioFiltrado.filter(r => (r.estatus || r.status) === 'Listo').length,
+        enDesarrollo: reporteDiarioFiltrado.filter(r => (r.estatus || r.status) === 'En desarrollo').length,
+        pendiente: reporteDiarioFiltrado.filter(r => (r.estatus || r.status) === 'Pendiente').length,
+        retrasado: reporteDiarioFiltrado.filter(r => (r.estatus || r.status) === 'Retrasado').length
+      };
+
+      return (
+        <div className="min-h-screen bg-slate-50 text-slate-800 font-sans antialiased pb-12">
+          <header className="border-b border-slate-200 bg-white sticky top-0 z-40 shadow-sm">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="bg-emerald-600 p-2.5 rounded-xl text-white font-bold text-sm tracking-widest">TW</div>
+                <div>
+                  <h1 className="text-lg font-bold tracking-tight text-slate-900 leading-none">Gerencia de Formación Tecnológica</h1>
+                  <p className="text-xs text-slate-500 mt-1">Conexión Segura &middot; Google Sheets</p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-3">
+                {role !== 'none' && (
+                  <button onClick={() => { setRole('none'); setActiveWorker(''); setSearchTerm(''); setProjectFilter('Todos'); setStatusFilter('Todos'); setWorkerFilter('Todos'); setSupervisorFilter('Todos'); setCurrentSupervisorData(null); }} className="px-3 py-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 border border-slate-300 rounded-lg">
+                    Cerrar Sesión
+                  </button>
+                )}
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  <span className="h-1.5 w-1.5 rounded-full mr-1.5 bg-emerald-500"></span>Sincronizado
+                </span>
+              </div>
+            </div>
+          </header>
+
+          <main className="max-w-[98%] mx-auto px-2 py-8">
+            {role === 'none' && (
+              <div className="max-w-4xl mx-auto mt-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col justify-between">
+                  <div>
+                    <div className="bg-indigo-100 text-indigo-800 p-3 rounded-xl w-12 h-12 flex items-center justify-center mb-4 font-bold">S</div>
+                    <h3 className="text-xl font-bold text-slate-900 mb-2">Supervisión / Gerencia</h3>
+                    <p className="text-sm text-slate-500 mb-6">Módulo Supervisor y Validadores.</p>
+                  </div>
+                  <form onSubmit={handleSupervisorLogin} className="space-y-3">
+                    <input type="password" placeholder="PIN de Acceso Autorizado" value={pinInput} onChange={(e) => setPinInput(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+                    {pinError && <p className="text-xs text-rose-600">{pinError}</p>}
+                    <button type="submit" className="w-full bg-emerald-600 text-white font-semibold text-sm py-2 rounded-lg shadow-md">Ingresar al Panel</button>
+                  </form>
+                </div>
+
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col justify-between">
+                  <div>
+                    <div className="bg-slate-100 text-slate-700 p-3 rounded-xl w-12 h-12 flex items-center justify-center mb-4 font-bold">C</div>
+                    <h3 className="text-xl font-bold text-slate-900 mb-2">Colaborador</h3>
+                    <p className="text-sm text-slate-500 mb-4">Accede a tus tareas individuales.</p>
+                  </div>
+                  {selectedWorkerPending ? (
+                    <form onSubmit={handleWorkerPinSubmit} className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                      <p className="text-sm font-semibold text-slate-900">Validar: {selectedWorkerPending.nombre}</p>
+                      <input type="password" placeholder="PIN de 4 dígitos" value={workerPinInput} onChange={(e) => setWorkerPinInput(e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs" required autoFocus />
+                      {workerPinError && <p className="text-xs text-rose-600">{workerPinError}</p>}
+                      <button type="submit" className="w-full bg-emerald-600 text-white font-semibold text-xs py-2 rounded-lg">Entrar</button>
+                    </form>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto">
+                      {COLABORADORES.map(c => (
+                        <button key={c.nombre} onClick={() => setSelectedWorkerPending(c)} className="w-full text-left bg-slate-50 hover:bg-slate-100 border border-slate-200 px-3 py-2 rounded-lg text-sm flex justify-between font-medium">
+                          <span>{c.nombre}</span><span className="text-xs text-emerald-600">Ingresar &rarr;</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {role !== 'none' && (
+              <div className="space-y-6">
+                <div className="flex items-center space-x-2 border-b border-slate-200 pb-4">
+                  <span className="text-xs font-bold uppercase text-slate-400 mr-2">Vista de Oficina:</span>
+                  <button onClick={() => setSelectedOfficeView('OGF')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${selectedOfficeView === 'OGF' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
+                    🏢 OGF (Dulce Contrera)
+                  </button>
+                  <button onClick={() => setSelectedOfficeView('OTC')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${selectedOfficeView === 'OTC' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
+                    🏛️ OTC (Yenny Lizarraga)
+                  </button>
+                  <button onClick={() => setSelectedOfficeView('TODAS')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${selectedOfficeView === 'TODAS' ? 'bg-slate-800 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
+                    🌐 Vista Global (Todas)
+                  </button>
+                </div>
+
+                <div className="bg-white rounded-2xl p-6 border border-slate-200 flex flex-col md:flex-row md:items-center md:justify-between gap-4 shadow-sm">
+                  <div>
+                    <span className="text-xs font-bold uppercase text-emerald-600">
+                      {role === 'supervisor' ? currentSupervisorData.tipo : `Oficina: ${selectedOfficeView}`}
+                    </span>
+                    <h2 className="text-2xl font-bold text-slate-900 mt-1">
+                      {role === 'supervisor' ? currentSupervisorData.titulo : `Mis Actividades: ${activeWorker}`}
+                    </h2>
+                  </div>
+                  <div className="flex items-center space-x-2 flex-wrap gap-y-2">
+                    {role === 'supervisor' && (
+                      <button onClick={() => fetchReporteDiario()} className="px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-indigo-600 shadow-md hover:bg-indigo-700">
+                        📄 Reporte Diario
+                      </button>
+                    )}
+                    {role === 'supervisor' && currentSupervisorData.tipo === "Principal" && (
+                      <>
+                        <button onClick={() => setShowManagerModal(true)} className="px-4 py-2.5 text-sm font-semibold rounded-xl text-slate-700 bg-slate-100 border border-slate-300 shadow-sm hover:bg-slate-200">👥 Validadores</button>
+                        <button onClick={() => setShowBulkModal(true)} className="px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-sky-600 shadow-md hover:bg-sky-700">📥 Carga Masiva (CSV / ODS)</button>
+                        <button onClick={() => setShowCreateModal(true)} className="px-4 py-2.5 text-sm font-semibold rounded-xl text-white bg-emerald-600 shadow-md">Asignar Tarea</button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                  <div className="bg-white border border-slate-200 p-4 rounded-xl"><p className="text-xs font-medium text-slate-500 uppercase">Activas</p><p className="text-2xl font-bold text-slate-900">{stats.total}</p></div>
+                  <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl"><p className="text-xs font-medium text-emerald-700 uppercase">Listo</p><p className="text-2xl font-bold text-emerald-800">{stats.completadas}</p></div>
+                  <div className="bg-sky-50 border border-sky-200 p-4 rounded-xl"><p className="text-xs font-medium text-sky-700 uppercase">En desarrollo</p><p className="text-2xl font-bold text-sky-800">{stats.enDesarrollo}</p></div>
+                  <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl"><p className="text-xs font-medium text-rose-700 uppercase">Retrasado</p><p className="text-2xl font-bold text-rose-800">{stats.bloqueadas}</p></div>
+                  <div className="bg-slate-100 border border-slate-200 p-4 rounded-xl"><p className="text-xs font-medium text-slate-600 uppercase">Pendientes</p><p className="text-2xl font-bold text-slate-800">{stats.pendientes}</p></div>
+                </div>
+
+                {role === 'supervisor' && (
+                  <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 items-center">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1">🔍 Búsqueda</label>
+                      <input type="text" placeholder="Buscar..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2.5 bg-slate-50 font-medium" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1">📁 Proyecto</label>
+                      <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className="w-full text-xs border border-slate-200 rounded-lg px-2 py-2.5 bg-slate-50 font-medium">
+                        <option value="Todos">Todos</option>
+                        {PROYECTOS.map(p => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1">👤 Colaborador</label>
+                      <select value={workerFilter} onChange={(e) => setWorkerFilter(e.target.value)} className="w-full text-xs border border-slate-200 rounded-lg px-2 py-2.5 bg-slate-50 font-medium">
+                        <option value="Todos">Todos</option>
+                        {COLABORADORES.map(c => <option key={c.nombre} value={c.nombre}>{c.nombre}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1">🛡️ Supervisor</label>
+                      <select value={supervisorFilter} onChange={(e) => setSupervisorFilter(e.target.value)} className="w-full text-xs border border-slate-200 rounded-lg px-2 py-2.5 bg-slate-50 font-medium">
+                        <option value="Todos">Todos</option>
+                        <option value="Dulce Contrera">Dulce Contrera (OGF)</option>
+                        <option value="Yenny Lizarraga">Yenny Lizarraga (OTC)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1">📊 Estatus</label>
+                      <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full text-xs border border-slate-200 rounded-lg px-2 py-2.5 bg-slate-50 font-medium">
+                        <option value="Todos">Todos</option>
+                        <option value="Pendiente">Pendiente</option>
+                        <option value="En desarrollo">En desarrollo</option>
+                        <option value="Listo">Listo</option>
+                        <option value="Retrasado">Retrasado</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                  <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
+                    <h3 className="font-semibold text-slate-900">Monitoreo General de Tareas ({selectedOfficeView})</h3>
+                    <button onClick={fetchTasks} className="text-xs font-semibold text-emerald-600 hover:underline">Sincronizar</button>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider border-b border-slate-200">
+                          <th className="py-3 px-3">Oficina</th>
+                          <th className="py-3 px-3">Proyecto</th>
+                          <th className="py-3 px-3">Acción Específica</th>
+                          <th className="py-3 px-3">Actividad</th>
+                          <th className="py-3 px-3">Producto</th>
+                          <th className="py-3 px-3">Responsable</th>
+                          <th className="py-3 px-3">Estatus</th>
+                          <th className="py-3 px-3">Fechas</th>
+                          <th className="py-3 px-3">Tiempo / Avance / Adjunto</th>
+                          <th className="py-3 px-3">Observaciones</th>
+                          <th className="py-3 px-3">Retroalimentación</th>
+                          <th className="py-3 px-3 text-right">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-xs text-slate-700 bg-white">
+                        {filteredTasks.map((task, index) => (
+                          <tr key={`t-row-${task.id || index}`} className="hover:bg-slate-50 align-top">
+                            <td className="py-3 px-3">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${task.oficina === 'OGF' ? 'bg-purple-100 text-purple-800' : 'bg-indigo-100 text-indigo-800'}`}>
+                                {task.oficina || 'OTC'}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3"><span className="inline-flex px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 border text-slate-600">{task.project || "-"}</span></td>
+                            <td className="py-3 px-3 font-medium text-slate-800">{task.accionEspecifica || "-"}</td>
+                            <td className="py-3 px-3 font-semibold text-slate-900">{task.title || task.actividad || "-"}</td>
+                            <td className="py-3 px-3 text-slate-600">{task.producto || "-"}</td>
+                            <td className="py-3 px-3 font-medium text-slate-700">{task.worker || "-"}</td>
+                            <td className="py-3 px-3">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                (task.status || task.estatus) === 'Listo' ? 'bg-emerald-100 text-emerald-800' :
+                                (task.status || task.estatus) === 'En desarrollo' ? 'bg-sky-100 text-sky-800' :
+                                (task.status || task.estatus) === 'Retrasado' ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-800'
+                              }`}>{task.status || task.estatus || 'Pendiente'}</span>
+                            </td>
+                            <td className="py-3 px-3 text-[11px] text-slate-500 whitespace-nowrap">
+                              <div>Asig: {task.startDate || "-"}</div>
+                              <div>Ent: {task.endDate || "-"}</div>
+                            </td>
+                            <td className="py-3 px-3 text-slate-600 max-w-xs">
+                              <div className="font-semibold text-indigo-600">{task.tiempoEjecucion ? `⏱️ ${task.tiempoEjecucion}` : ""}</div>
+                              <div className="italic mt-0.5">{task.dailyAdvance || "Sin avance"}</div>
+                              {task.adjunto && <div className="mt-1"><a href={task.adjunto} target="_blank" rel="noreferrer" className="text-blue-600 underline font-semibold">📎 Ver adjunto</a></div>}
+                            </td>
+                            <td className="py-3 px-3 text-rose-700 italic max-w-xs">{task.observation || "-"}</td>
+                            <td className="py-3 px-3 text-indigo-900 bg-indigo-50/40 font-medium max-w-xs">{task.supervisorComments || "-"}</td>
+                            <td className="py-3 px-3 text-right whitespace-nowrap">
+                              <div className="flex items-center justify-end space-x-1.5">
+                                {role === 'trabajador' ? (
+                                  <button onClick={() => openReportModal(task)} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold">Reportar</button>
+                                ) : (
+                                  <>
+                                    <button onClick={() => openCommentModal(task)} className="px-2 py-1 bg-indigo-600 text-white font-bold rounded text-[11px]">Validar</button>
+                                    <button onClick={() => { if (confirm('¿Eliminar?')) deleteTaskFromSheets(task.id); }} className="text-slate-400 hover:text-rose-600 px-1 font-bold">✕</button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+          </main>
+
+          {/* Modal Carga Masiva por Archivo CSV / ODS */}
+          {showBulkModal && (
+            <div className="fixed inset-0 bg-slate-950/45 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-white border rounded-2xl max-w-2xl w-full p-6 shadow-xl space-y-4">
+                <div className="flex justify-between items-center">
+                  <h3 className="font-bold text-slate-950 text-base">📁 Importar Tareas (CSV u ODS)</h3>
+                  <button onClick={() => setShowBulkModal(false)} className="text-slate-400 font-bold">✕</button>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Selecciona un archivo <b>.csv</b> u <b>.ods</b> con las columnas en el orden:
+                  <br /><code className="text-indigo-600 font-bold">Oficina | Proyecto | Acción Específica | Actividad | Producto | Responsable | Fecha (AAAA-MM-DD)</code>
+                </p>
+
+                <div className="space-y-4">
+                  <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center bg-slate-50 hover:bg-slate-100 transition-all cursor-pointer relative">
+                    <input 
+                      type="file" 
+                      accept=".csv, .ods, .xlsx, .xls" 
+                      onChange={async (e) => {
+                        const file = e.target.files[0];
+                        if (!file) return;
+
+                        setBulkLoading(true);
+                        try {
+                          const text = await file.text();
+                          const lines = text.split('\n');
+                          const tasksToUpload = [];
+
+                          for (let line of lines) {
+                            if (!line.trim()) continue;
+                            const parts = line.includes('\t') ? line.split('\t') : line.split(',');
+                            if (parts.length >= 4) {
+                              tasksToUpload.push({
+                                oficina: String(parts[0] || 'OTC').trim().toUpperCase().includes('OGF') ? 'OGF' : 'OTC',
+                                project: String(parts[1] || PROYECTOS[0]).trim().replace(/"/g, ''),
+                                accionEspecifica: String(parts[2] || 'General').trim().replace(/"/g, ''),
+                                title: String(parts[3] || 'Sin título').trim().replace(/"/g, ''),
+                                producto: parts[4] ? String(parts[4]).trim().replace(/"/g, '') : '',
+                                worker: parts[5] ? String(parts[5]).trim().replace(/"/g, '') : COLABORADORES[0].nombre,
+                                startDate: new Date().toISOString().split('T')[0],
+                                endDate: parts[6] ? String(parts[6]).trim().replace(/"/g, '') : '',
+                                tiempoEjecucion: '',
+                                status: 'Pendiente'
+                              });
+                            }
+                          }
+
+                          if (tasksToUpload.length === 0) {
+                            alert("No se pudieron leer registros válidos en el archivo.");
+                            setBulkLoading(false);
+                            return;
+                          }
+
+                          const payload = { action: "bulkCreate", tasks: tasksToUpload };
+                          const response = await fetch(GOOGLE_SHEETS_API_URL, {
+                            method: "POST",
+                            mode: "cors",
+                            headers: { "Content-Type": "text/plain" },
+                            body: JSON.stringify(payload)
+                          });
+                          const result = await response.json();
+
+                          if (result.status === "success") {
+                            alert(`¡Carga de archivo exitosa! Se guardaron ${result.count} tareas en Google Sheets.`);
+                            setShowBulkModal(false);
+                            await fetchTasks();
+                          } else {
+                            alert("Error en el servidor: " + (result.message || "Desconocido"));
+                          }
+                        } catch (err) {
+                          alert("Error al procesar el archivo: " + err.message);
+                        } finally {
+                          setBulkLoading(false);
+                        }
+                      }}
+                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                    />
+                    <div className="space-y-1">
+                      <span className="text-3xl">📄</span>
+                      <p className="text-xs font-bold text-slate-700">Haz clic para seleccionar tu archivo CSV u ODS</p>
+                      <p className="text-[11px] text-slate-400">O arrástralo y suéltalo aquí</p>
+                    </div>
+                  </div>
+
+                  {bulkLoading && (
+                    <div className="text-center py-2">
+                      <p className="text-xs font-bold text-indigo-600 animate-pulse">Guardando tareas en la base de datos de Google Sheet...</p>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end pt-2">
+                    <button type="button" onClick={() => setShowBulkModal(false)} className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Cancelar</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Crear Tarea */}
+          {showCreateModal && (
+            <div className="fixed inset-0 bg-slate-950/45 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-white border rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4">
+                <div className="flex justify-between items-center"><h3 className="font-bold text-slate-950">Asignar Nueva Tarea</h3><button onClick={() => setShowCreateModal(false)} className="text-slate-400">✕</button></div>
+                <form onSubmit={handleCreateTask} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Oficina Asignadora</label>
+                    <select value={newTask.oficina} onChange={e => setNewTask({...newTask, oficina: e.target.value})} className="w-full border rounded-lg p-2 text-xs font-bold bg-slate-50">
+                      <option value="OTC">OTC (Tecnología Curricular)</option>
+                      <option value="OGF">OGF (Gestión de Formación)</option>
+                    </select>
+                  </div>
+                  <div><label className="block text-xs font-semibold mb-1">Proyecto</label><select value={newTask.project} onChange={e => setNewTask({...newTask, project: e.target.value})} className="w-full border rounded-lg p-2 text-xs">{PROYECTOS.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
+                  <div><label className="block text-xs font-semibold mb-1">Acción Específica (Módulo / Curso)</label><input type="text" required value={newTask.accionEspecifica} onChange={e => setNewTask({...newTask, accionEspecifica: e.target.value})} className="w-full border rounded-lg p-2 text-xs" /></div>
+                  <div><label className="block text-xs font-semibold mb-1">Actividad</label><input type="text" required value={newTask.title} onChange={e => setNewTask({...newTask, title: e.target.value})} className="w-full border rounded-lg p-2 text-xs" /></div>
+                  <div><label className="block text-xs font-semibold mb-1">Producto Esperado</label><input type="text" value={newTask.producto} onChange={e => setNewTask({...newTask, producto: e.target.value})} className="w-full border rounded-lg p-2 text-xs" /></div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Responsable</label>
+                    <select value={newTask.worker} onChange={e => setNewTask({...newTask, worker: e.target.value})} className="w-full border rounded-lg p-2 text-xs">
+                      {COLABORADORES.map(c => <option key={c.nombre} value={c.nombre}>{c.nombre}</option>)}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><label className="block text-xs font-semibold mb-1">Fecha Entrega</label><input type="date" value={newTask.endDate} onChange={e => setNewTask({...newTask, endDate: e.target.value})} className="w-full border rounded-lg p-2 text-xs" /></div>
+                    <div><label className="block text-xs font-semibold mb-1">Tiempo Estimado</label><input type="text" placeholder="Ej: 3 días" value={newTask.tiempoEjecucion} onChange={e => setNewTask({...newTask, tiempoEjecucion: e.target.value})} className="w-full border rounded-lg p-2 text-xs" /></div>
+                  </div>
+                  <div className="flex justify-end space-x-2 pt-2"><button type="submit" className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold">Guardar Tarea</button></div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {showReportModal && selectedTask && (
+            <div className="fixed inset-0 bg-slate-950/45 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-white border rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4">
+                <div className="flex justify-between items-center"><h3 className="font-bold text-slate-950">Reportar Avance</h3><button onClick={() => setShowReportModal(false)} className="text-slate-400">✕</button></div>
+                <form onSubmit={handleSaveReport} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Estado</label>
+                    <select value={reportData.status} onChange={e => setReportData({...reportData, status: e.target.value})} className="w-full border rounded-lg p-2 text-xs">
+                      <option value="Pendiente">Pendiente</option>
+                      <option value="En desarrollo">En desarrollo</option>
+                      <option value="Listo">Listo</option>
+                      <option value="Retrasado">Retrasado</option>
+                    </select>
+                  </div>
+                  <div><label className="block text-xs font-semibold mb-1">Tiempo de Ejecución Invertido</label><input type="text" placeholder="Ej: 5 horas / 2 días" value={reportData.tiempoEjecucion} onChange={e => setReportData({...reportData, tiempoEjecucion: e.target.value})} className="w-full border rounded-lg p-2 text-xs" /></div>
+                  <div><label className="block text-xs font-semibold mb-1">Avance Diario / Bitácora</label><textarea rows="2" value={reportData.dailyAdvance} onChange={e => setReportData({...reportData, dailyAdvance: e.target.value})} className="w-full border rounded-lg p-2 text-xs"></textarea></div>
+                  <div><label className="block text-xs font-semibold mb-1">Observaciones / Obstáculos</label><textarea rows="2" value={reportData.observation} onChange={e => setReportData({...reportData, observation: e.target.value})} className="w-full border rounded-lg p-2 text-xs"></textarea></div>
+                  <div><label className="block text-xs font-semibold mb-1">Enlace Adjunto (Drive / Canva / GitHub)</label><input type="text" placeholder="https://..." value={reportData.adjunto} onChange={e => setReportData({...reportData, adjunto: e.target.value})} className="w-full border rounded-lg p-2 text-xs" /></div>
+                  <div className="flex justify-end space-x-2"><button type="submit" className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold">Actualizar</button></div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {showCommentModal && selectedTask && (
+            <div className="fixed inset-0 bg-slate-950/45 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-white border rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4">
+                <div className="flex justify-between items-center"><h3 className="font-bold text-slate-950">Retroalimentación / Supervisión</h3><button onClick={() => setShowCommentModal(false)} className="text-slate-400">✕</button></div>
+                <form onSubmit={handleSaveComment} className="space-y-4">
+                  <textarea required rows="4" placeholder="Observaciones, correcciones o sugerencias de mejora..." value={supervisorCommentText} onChange={(e) => setSupervisorCommentText(e.target.value)} className="w-full border rounded-lg p-2 text-sm" />
+                  <div className="flex justify-end"><button type="submit" className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg">Guardar Retroalimentación</button></div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {showDailyReportModal && (
+            <div className="fixed inset-0 bg-slate-950/45 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-white border rounded-2xl max-w-5xl w-full p-6 shadow-xl space-y-5 max-h-[92vh] flex flex-col">
+                <div className="flex justify-between items-center border-b pb-3">
+                  <div>
+                    <h3 className="font-bold text-slate-950 text-lg">Reporte Diario de Actividades</h3>
+                    <p className="text-xs text-slate-500">Filtrado por rango de fechas y métricas de desempeño</p>
+                  </div>
+                  <button onClick={() => setShowDailyReportModal(false)} className="text-slate-400 font-bold text-lg hover:text-slate-700">✕</button>
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 items-end">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Desde</label>
+                    <input type="date" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)} className="w-full border p-2 text-xs rounded-lg bg-white" />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Hasta</label>
+                    <input type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)} className="w-full border p-2 text-xs rounded-lg bg-white" />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Proyecto</label>
+                    <select value={reportProjectFilter} onChange={e => setReportProjectFilter(e.target.value)} className="w-full border p-2 text-xs rounded-lg bg-white font-medium">
+                      <option value="Todos">Todos los Proyectos</option>
+                      {PROYECTOS.map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Responsable</label>
+                    <select value={reportWorkerFilter} onChange={e => setReportWorkerFilter(e.target.value)} className="w-full border p-2 text-xs rounded-lg bg-white font-medium">
+                      <option value="Todos">Todos los Colaboradores</option>
+                      {COLABORADORES.map(c => <option key={c.nombre} value={c.nombre}>{c.nombre}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex space-x-2">
+                    <button onClick={() => fetchReporteDiario(fechaDesde, fechaHasta)} className="w-full px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-sm">🔍 Consultar</button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                  <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl text-center"><p className="text-[10px] font-bold uppercase text-slate-500">Total Registros</p><p className="text-xl font-bold text-slate-900">{reportStats.total}</p></div>
+                  <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl text-center"><p className="text-[10px] font-bold uppercase text-emerald-700">Listos</p><p className="text-xl font-bold text-emerald-800">{reportStats.listo}</p></div>
+                  <div className="bg-sky-50 border border-sky-200 p-3 rounded-xl text-center"><p className="text-[10px] font-bold uppercase text-sky-700">En Desarrollo</p><p className="text-xl font-bold text-sky-800">{reportStats.enDesarrollo}</p></div>
+                  <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl text-center"><p className="text-[10px] font-bold uppercase text-amber-700">Pendientes</p><p className="text-xl font-bold text-amber-800">{reportStats.pendiente}</p></div>
+                  <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl text-center"><p className="text-[10px] font-bold uppercase text-rose-700">Retrasados</p><p className="text-xl font-bold text-rose-800">{reportStats.retrasado}</p></div>
+                </div>
+
+                <div className="flex justify-end space-x-2">
+                  <button onClick={downloadODS} className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow-sm flex items-center space-x-1"><span>📥 Descargar ODS</span></button>
+                  <button onClick={downloadPDF} className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm flex items-center space-x-1"><span>📄 Descargar PDF</span></button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto border border-slate-200 rounded-xl">
+                  {reporteDiarioFiltrado.length === 0 ? (
+                    <p className="text-center text-slate-400 py-12 text-sm font-medium">No se encontraron registros con los filtros seleccionados.</p>
+                  ) : (
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b bg-slate-100 text-slate-600 text-xs font-bold uppercase sticky top-0">
+                          <th className="p-3">Oficina</th>
+                          <th className="p-3">Fecha / Hora</th>
+                          <th className="p-3">Proyecto</th>
+                          <th className="p-3">Acción Específica</th>
+                          <th className="p-3">Actividad</th>
+                          <th className="p-3">Responsable</th>
+                          <th className="p-3">Estatus</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-xs bg-white text-slate-700">
+                        {reporteDiarioFiltrado.map((r, i) => (
+                          <tr key={i} className="hover:bg-slate-50/80">
+                            <td className="p-3 font-semibold text-slate-600">{r.oficina || "OTC"}</td>
+                            <td className="p-3 whitespace-nowrap text-slate-500">{formatearFechaHora(r.fecha || r.lastUpdated || "")}</td>
+                            <td className="p-3"><span className="inline-flex px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 border text-slate-600">{r.proyecto || r.project || "-"}</span></td>
+                            <td className="p-3 font-medium text-slate-800">{r.accionEspecifica || "-"}</td>
+                            <td className="p-3 font-semibold text-slate-900">{r.title || r.actividad || "-"}</td>
+                            <td className="p-3 font-medium text-slate-700">{r.responsable || r.worker || "-"}</td>
+                            <td className="p-3">
+                              <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                                (r.estatus || r.status) === 'Listo' ? 'bg-emerald-100 text-emerald-800' :
+                                (r.estatus || r.status) === 'En desarrollo' ? 'bg-sky-100 text-sky-800' :
+                                (r.estatus || r.status) === 'Retrasado' ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-800'
+                              }`}>
+                                {r.estatus || r.status || "Pendiente"}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showManagerModal && (
+            <div className="fixed inset-0 bg-slate-950/45 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-white border rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl flex flex-col">
+                <div className="px-6 py-4 border-b bg-slate-50 flex items-center justify-between">
+                  <h3 className="font-bold text-slate-950">Gestión de Validadores</h3>
+                  <button onClick={() => setShowManagerModal(false)} className="text-slate-400 font-bold">✕</button>
+                </div>
+                <div className="p-6 space-y-6">
+                  <form onSubmit={handleAgregarValidador} className="bg-slate-50 p-4 rounded-xl border space-y-4">
+                    <p className="text-xs font-bold text-indigo-700 uppercase">➕ Registrar / Modificar Supervisor Técnico</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-500 mb-1">Coordinador</label>
+                        <select value={nuevoValidador.nombreValidador} onChange={(e) => setNuevoValidador({...nuevoValidador, nombreValidador: e.target.value})} className="w-full bg-white border rounded-lg p-2 text-xs">
+                          {COLABORADORES.map(c => <option key={c.nombre} value={c.nombre}>{c.nombre}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-500 mb-1">PIN de Acceso</label>
+                        <input type="password" placeholder="Ej: 5533" value={nuevoValidador.pin} onChange={(e) => setNuevoValidador({...nuevoValidador, pin: e.target.value})} className="w-full bg-white border rounded-lg p-2 text-xs font-mono font-bold" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 mb-1.5">Colaboradores bajo su supervisión:</label>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {COLABORADORES.map(c => {
+                          const estaMarcado = nuevoValidador.asignados.includes(c.nombre);
+                          return (
+                            <button type="button" key={`chk-${c.nombre}`} onClick={() => handleToggleAsignado(c.nombre)} className={`text-left p-2 rounded-lg border text-xs font-medium flex items-center justify-between ${estaMarcado ? 'bg-indigo-50 border-indigo-400 text-indigo-950' : 'bg-white text-slate-600'}`}>
+                              <span>{c.nombre}</span><span>{estaMarcado ? '✅' : '➕'}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="flex justify-end"><button type="submit" className="px-3 py-2 bg-indigo-600 text-white font-bold text-xs rounded-lg">Guardar Configuración</button></div>
+                  </form>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
