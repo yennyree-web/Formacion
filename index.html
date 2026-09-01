@@ -370,7 +370,7 @@
         e.preventDefault();
         const PINS_GERENCIA = {
           "1214": "Yenny Lizarraga", // OTC
-          "5566": "Dulce Contreras",  // OGF
+          "5566": "Dulce Contrera",  // OGF
           "6677": "Isabel Cassino",
           "7788": "Supervisor"
         };
@@ -380,7 +380,7 @@
           setRole('supervisor');
           setActiveWorker('');
           
-          if (nombreSup === "Dulce Contreras") {
+          if (nombreSup === "Dulce Contrera") {
             setSelectedOfficeView('OGF');
           } else if (nombreSup === "Yenny Lizarraga") {
             setSelectedOfficeView('OTC');
@@ -665,10 +665,10 @@
                 <div className="flex items-center space-x-2 border-b border-slate-200 pb-4">
                   <span className="text-xs font-bold uppercase text-slate-400 mr-2">Vista de Oficina:</span>
                   <button onClick={() => setSelectedOfficeView('OGF')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${selectedOfficeView === 'OGF' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
-                    🏢 OGF (Dulce Contrera)
+                    🏢 OGF (Sup. Dulce Contrera)
                   </button>
                   <button onClick={() => setSelectedOfficeView('OTC')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${selectedOfficeView === 'OTC' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
-                    🏛️ OTC (Yenny Lizarraga)
+                    🏛️ OTC (Sup. Yenny Lizarraga)
                   </button>
                   <button onClick={() => setSelectedOfficeView('TODAS')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${selectedOfficeView === 'TODAS' ? 'bg-slate-800 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
                     🌐 Vista Global (Todas)
@@ -826,7 +826,7 @@
             )}
           </main>
 
-          {/* Modal Carga Masiva por Archivo CSV / ODS */}
+          {/* Modal Carga Masiva CSV / ODS con las 9 variables exactas */}
           {showBulkModal && (
             <div className="fixed inset-0 bg-slate-950/45 backdrop-blur-sm flex items-center justify-center p-4 z-50">
               <div className="bg-white border rounded-2xl max-w-2xl w-full p-6 shadow-xl space-y-4">
@@ -835,8 +835,8 @@
                   <button onClick={() => setShowBulkModal(false)} className="text-slate-400 font-bold">✕</button>
                 </div>
                 <p className="text-xs text-slate-500">
-                  Selecciona un archivo <b>.csv</b> u <b>.ods</b> con las columnas en el orden:
-                  <br /><code className="text-indigo-600 font-bold">Oficina | Proyecto | Acción Específica | Actividad | Producto | Responsable | Fecha (AAAA-MM-DD)</code>
+                  Selecciona un archivo <b>.csv</b> u <b>.ods</b> ordenado exactamente con estas 9 columnas:
+                  <br /><code className="text-indigo-600 font-bold">Oficina | Proyecto | Acción Específica | Actividad | Producto | Responsable | Fecha Inicio | Fecha Fin | Tiempo</code>
                 </p>
 
                 <div className="space-y-4">
@@ -857,7 +857,7 @@
                           for (let line of lines) {
                             if (!line.trim()) continue;
                             const parts = line.includes('\t') ? line.split('\t') : line.split(',');
-                            if (parts.length >= 4) {
+                            if (parts.length >= 6) {
                               tasksToUpload.push({
                                 oficina: String(parts[0] || 'OTC').trim().toUpperCase().includes('OGF') ? 'OGF' : 'OTC',
                                 project: String(parts[1] || PROYECTOS[0]).trim().replace(/"/g, ''),
@@ -865,9 +865,9 @@
                                 title: String(parts[3] || 'Sin título').trim().replace(/"/g, ''),
                                 producto: parts[4] ? String(parts[4]).trim().replace(/"/g, '') : '',
                                 worker: parts[5] ? String(parts[5]).trim().replace(/"/g, '') : COLABORADORES[0].nombre,
-                                startDate: new Date().toISOString().split('T')[0],
-                                endDate: parts[6] ? String(parts[6]).trim().replace(/"/g, '') : '',
-                                tiempoEjecucion: '',
+                                startDate: parts[6] ? String(parts[6]).trim().replace(/"/g, '') : new Date().toISOString().split('T')[0],
+                                endDate: parts[7] ? String(parts[7]).trim().replace(/"/g, '') : '',
+                                tiempoEjecucion: parts[8] ? String(parts[8]).trim().replace(/"/g, '') : '',
                                 status: 'Pendiente'
                               });
                             }
@@ -1117,7 +1117,7 @@
                         {COLABORADORES.map(c => {
                           const estaMarcado = nuevoValidador.asignados.includes(c.nombre);
                           return (
-                            <button type="button" key={`chk-${c.nombre}`} onClick={() => handleToggleAsignado(c.nombre)} className={`text-left p-2 rounded-lg border text-xs font-medium flex items-center justify-between ${estaMarcado ? 'bg-indigo-50 border-indigo-400 text-indigo-950' : 'bg-white text-slate-600'}`}>
+                            <button type="button" key={`chk-${c.nombre}`} onClick={() => handleToggleAsignado(c.nombre)} className={`text-letf p-2 rounded-lg border text-xs font-medium flex items-center justify-between ${estaMarcado ? 'bg-indigo-50 border-indigo-400 text-indigo-950' : 'bg-white text-slate-600'}`}>
                               <span>{c.nombre}</span><span>{estaMarcado ? '✅' : '➕'}</span>
                             </button>
                           );
