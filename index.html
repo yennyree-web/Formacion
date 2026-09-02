@@ -28,12 +28,18 @@
 
     const GOOGLE_SHEETS_API_URL = "https://script.google.com/macros/s/AKfycbwLhH59xIOrTMyk1HDvX8hM2Zn5LIIU3anIXGVRcrlClM8YcW_VvY7tNyemhl2ce4vIgg/exec";
 
+    const DEPENDENCIAS = [
+      { codigo: "OTC", nombre: "OTC (Tecnología Curricular)" },
+      { codigo: "OGF", nombre: "OGF (Gestión de Formación)" },
+      { codigo: "GFT", nombre: "Gerencia de Formación Tecnológica" }
+    ];
+
     const COLABORADORES = [
       { nombre: "Diosmary Cedeño", pin: "2345" },
       { nombre: "Leonel Roman", pin: "6789" },
       { nombre: "Luis Salas", pin: "0123" },
       { nombre: "Maryorie Orellana", pin: "0456" },
-      { nombre: "Rebeca Ochoa", pin: "1234" },
+      { nombre: "Rebeca Ochoa", pin: "1311" },
       { nombre: "Fredes De Paz", pin: "5678" },
       { nombre: "Betsy Freire", pin: "9123" },
       { nombre: "Maikelys Martinez", pin: "4567" },
@@ -124,7 +130,7 @@
         accionEspecifica: '',
         title: '',
         producto: '',
-        worker: COLABORADORES[0].nombre,
+        workers: [COLABORADORES[0].nombre],
         startDate: new Date().toISOString().split('T')[0],
         endDate: '',
         tiempoEjecucion: ''
@@ -206,11 +212,11 @@
           const projVal = r.proyecto || r.project || "";
           const workVal = r.responsable || r.worker || "";
           const matchProj = reportProjectFilter === 'Todos' || projVal === reportProjectFilter;
-          const matchWork = reportWorkerFilter === 'Todos' || workVal === reportWorkerFilter;
+          const matchWork = reportWorkerFilter === 'Todos' || workVal.toLowerCase().includes(reportWorkerFilter.toLowerCase());
           return matchProj && matchWork;
         });
 
-        const tableColumn = ["Oficina", "Fecha / Hora", "Proyecto", "Acción Específica", "Actividad", "Responsable", "Estatus"];
+        const tableColumn = ["Dependencia", "Fecha / Hora", "Proyecto", "Acción Específica", "Actividad", "Responsable(s)", "Estatus"];
         const tableRows = dataFiltradaExport.map(r => [
           r.oficina || "OTC",
           formatearFechaHora(r.fecha || r.lastUpdated || ""),
@@ -243,7 +249,7 @@
           const projVal = r.proyecto || r.project || "";
           const workVal = r.responsable || r.worker || "";
           const matchProj = reportProjectFilter === 'Todos' || projVal === reportProjectFilter;
-          const matchWork = reportWorkerFilter === 'Todos' || workVal === reportWorkerFilter;
+          const matchWork = reportWorkerFilter === 'Todos' || workVal.toLowerCase().includes(reportWorkerFilter.toLowerCase());
           return matchProj && matchWork;
         });
 
@@ -260,12 +266,12 @@
         xmlContent += '<Worksheet ss:Name="Reporte Diario">\n';
         xmlContent += '<Table>\n';
 
-        xmlContent += '<Row><Cell ss:StyleID="Header"><Data ss:Type="String">Oficina</Data></Cell>' +
+        xmlContent += '<Row><Cell ss:StyleID="Header"><Data ss:Type="String">Dependencia</Data></Cell>' +
                     '<Cell ss:StyleID="Header"><Data ss:Type="String">Fecha / Hora</Data></Cell>' +
                     '<Cell ss:StyleID="Header"><Data ss:Type="String">Proyecto</Data></Cell>' +
                     '<Cell ss:StyleID="Header"><Data ss:Type="String">Acción Específica</Data></Cell>' +
                     '<Cell ss:StyleID="Header"><Data ss:Type="String">Actividad</Data></Cell>' +
-                    '<Cell ss:StyleID="Header"><Data ss:Type="String">Responsable</Data></Cell>' +
+                    '<Cell ss:StyleID="Header"><Data ss:Type="String">Responsable(s)</Data></Cell>' +
                     '<Cell ss:StyleID="Header"><Data ss:Type="String">Estatus</Data></Cell></Row>\n';
 
         dataFiltradaExport.forEach(r => {
@@ -422,15 +428,30 @@
         }
       };
 
+      const handleToggleNewTaskWorker = (nombre) => {
+        setNewTask(prev => {
+          const exists = prev.workers.includes(nombre);
+          let updated;
+          if (exists) {
+            if (prev.workers.length === 1) return prev; // Mantener al menos uno
+            updated = prev.workers.filter(w => w !== nombre);
+          } else {
+            updated = [...prev.workers, nombre];
+          }
+          return { ...prev, workers: updated };
+        });
+      };
+
       const handleCreateTask = (e) => {
         e.preventDefault();
+        const workerString = newTask.workers.join(', ');
         const taskData = {
           oficina: newTask.oficina,
           project: newTask.project,
           accionEspecifica: newTask.accionEspecifica,
           title: newTask.title,
           producto: newTask.producto,
-          worker: newTask.worker,
+          worker: workerString,
           startDate: newTask.startDate,
           endDate: newTask.endDate,
           tiempoEjecucion: newTask.tiempoEjecucion,
@@ -441,7 +462,7 @@
         };
         saveTaskToSheets(taskData);
         setShowCreateModal(false);
-        setNewTask({ oficina: 'OTC', project: PROYECTOS[0], accionEspecifica: '', title: '', producto: '', worker: COLABORADORES[0].nombre, startDate: new Date().toISOString().split('T')[0], endDate: '', tiempoEjecucion: '' });
+        setNewTask({ oficina: 'OTC', project: PROYECTOS[0], accionEspecifica: '', title: '', producto: '', workers: [COLABORADORES[0].nombre], startDate: new Date().toISOString().split('T')[0], endDate: '', tiempoEjecucion: '' });
       };
 
       const handleAgregarValidador = (e) => {
@@ -536,16 +557,20 @@
       if (selectedOfficeView !== 'TODAS') {
         scopeTasks = tasks.filter(t => {
           let oficinaTarea = String(t.oficina || "").trim().toUpperCase();
-          if (oficinaTarea.includes("OGF")) oficinaTarea = "OGF";
-          else oficinaTarea = "OTC";
           return oficinaTarea === selectedOfficeView.toUpperCase();
         });
       }
 
       if (role === 'trabajador') {
-        scopeTasks = scopeTasks.filter(t => String(t.worker || t.responsable || "").trim().toLowerCase() === activeWorker.trim().toLowerCase());
+        scopeTasks = scopeTasks.filter(t => {
+          const workersField = String(t.worker || t.responsable || "").toLowerCase();
+          return workersField.includes(activeWorker.trim().toLowerCase());
+        });
       } else if (role === 'supervisor' && currentSupervisorData && currentSupervisorData.asignados !== "Todos") {
-        scopeTasks = scopeTasks.filter(t => currentSupervisorData.asignados.includes(t.worker || t.responsable));
+        scopeTasks = scopeTasks.filter(t => {
+          const workersField = String(t.worker || t.responsable || "");
+          return currentSupervisorData.asignados.some(collab => workersField.includes(collab));
+        });
       }
 
       const filteredTasks = scopeTasks.filter(t => {
@@ -557,7 +582,7 @@
 
         const matchProject = projectFilter === 'Todos' || projVal === projectFilter;
         const matchStatus = statusFilter === 'Todos' || statVal === statusFilter;
-        const matchWorker = workerFilter === 'Todos' || workerVal === workerFilter;
+        const matchWorker = workerFilter === 'Todos' || workerVal.toLowerCase().includes(workerFilter.toLowerCase());
         const matchSupervisor = supervisorFilter === 'Todos' || supervisorAsignado === supervisorFilter;
 
         const term = searchTerm.toLowerCase();
@@ -582,7 +607,7 @@
         const projVal = r.proyecto || r.project || "";
         const workVal = r.responsable || r.worker || "";
         const matchProj = reportProjectFilter === 'Todos' || projVal === reportProjectFilter;
-        const matchWork = reportWorkerFilter === 'Todos' || workVal === reportWorkerFilter;
+        const matchWork = reportWorkerFilter === 'Todos' || workVal.toLowerCase().includes(reportWorkerFilter.toLowerCase());
         return matchProj && matchWork;
       });
 
@@ -662,15 +687,14 @@
 
             {role !== 'none' && (
               <div className="space-y-6">
-                <div className="flex items-center space-x-2 border-b border-slate-200 pb-4">
-                  <span className="text-xs font-bold uppercase text-slate-400 mr-2">Vista de Oficina:</span>
-                  <button onClick={() => setSelectedOfficeView('OGF')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${selectedOfficeView === 'OGF' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
-                    🏢 OGF (Sup. Dulce Contrera)
-                  </button>
-                  <button onClick={() => setSelectedOfficeView('OTC')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${selectedOfficeView === 'OTC' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
-                    🏛️ OTC (Sup. Yenny Lizarraga)
-                  </button>
-                  <button onClick={() => setSelectedOfficeView('TODAS')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${selectedOfficeView === 'TODAS' ? 'bg-slate-800 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
+                <div className="flex items-center space-x-2 border-b border-slate-200 pb-4 overflow-x-auto">
+                  <span className="text-xs font-bold uppercase text-slate-400 mr-2 whitespace-nowrap">Vista de Dependencia:</span>
+                  {DEPENDENCIAS.map(d => (
+                    <button key={d.codigo} onClick={() => setSelectedOfficeView(d.codigo)} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${selectedOfficeView === d.codigo ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
+                      🏢 {d.codigo}
+                    </button>
+                  ))}
+                  <button onClick={() => setSelectedOfficeView('TODAS')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${selectedOfficeView === 'TODAS' ? 'bg-slate-800 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
                     🌐 Vista Global (Todas)
                   </button>
                 </div>
@@ -678,7 +702,7 @@
                 <div className="bg-white rounded-2xl p-6 border border-slate-200 flex flex-col md:flex-row md:items-center md:justify-between gap-4 shadow-sm">
                   <div>
                     <span className="text-xs font-bold uppercase text-emerald-600">
-                      {role === 'supervisor' ? currentSupervisorData.tipo : `Oficina: ${selectedOfficeView}`}
+                      {role === 'supervisor' ? currentSupervisorData.tipo : `Dependencia: ${selectedOfficeView}`}
                     </span>
                     <h2 className="text-2xl font-bold text-slate-900 mt-1">
                       {role === 'supervisor' ? currentSupervisorData.titulo : `Mis Actividades: ${activeWorker}`}
@@ -759,12 +783,12 @@
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider border-b border-slate-200">
-                          <th className="py-3 px-3">Oficina</th>
+                          <th className="py-3 px-3">Dependencia</th>
                           <th className="py-3 px-3">Proyecto</th>
                           <th className="py-3 px-3">Acción Específica</th>
                           <th className="py-3 px-3">Actividad</th>
                           <th className="py-3 px-3">Producto</th>
-                          <th className="py-3 px-3">Responsable</th>
+                          <th className="py-3 px-3">Responsable(s)</th>
                           <th className="py-3 px-3">Estatus</th>
                           <th className="py-3 px-3">Fechas</th>
                           <th className="py-3 px-3">Tiempo / Avance / Adjunto</th>
@@ -777,7 +801,7 @@
                         {filteredTasks.map((task, index) => (
                           <tr key={`t-row-${task.id || index}`} className="hover:bg-slate-50 align-top">
                             <td className="py-3 px-3">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${task.oficina === 'OGF' ? 'bg-purple-100 text-purple-800' : 'bg-indigo-100 text-indigo-800'}`}>
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${task.oficina === 'OGF' ? 'bg-purple-100 text-purple-800' : task.oficina === 'GFT' ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'}`}>
                                 {task.oficina || 'OTC'}
                               </span>
                             </td>
@@ -785,7 +809,7 @@
                             <td className="py-3 px-3 font-medium text-slate-800">{task.accionEspecifica || "-"}</td>
                             <td className="py-3 px-3 font-semibold text-slate-900">{task.title || task.actividad || "-"}</td>
                             <td className="py-3 px-3 text-slate-600">{task.producto || "-"}</td>
-                            <td className="py-3 px-3 font-medium text-slate-700">{task.worker || "-"}</td>
+                            <td className="py-3 px-3 font-medium text-slate-700">{task.worker || task.responsable || "-"}</td>
                             <td className="py-3 px-3">
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                 (task.status || task.estatus) === 'Listo' ? 'bg-emerald-100 text-emerald-800' :
@@ -826,7 +850,6 @@
             )}
           </main>
 
-          {/* Modal Carga Masiva CSV / ODS con las 9 variables exactas */}
           {showBulkModal && (
             <div className="fixed inset-0 bg-slate-950/45 backdrop-blur-sm flex items-center justify-center p-4 z-50">
               <div className="bg-white border rounded-2xl max-w-2xl w-full p-6 shadow-xl space-y-4">
@@ -859,7 +882,7 @@
                             const parts = line.includes('\t') ? line.split('\t') : line.split(',');
                             if (parts.length >= 6) {
                               tasksToUpload.push({
-                                oficina: String(parts[0] || 'OTC').trim().toUpperCase().includes('OGF') ? 'OGF' : 'OTC',
+                                oficina: String(parts[0] || 'OTC').trim().toUpperCase(),
                                 project: String(parts[1] || PROYECTOS[0]).trim().replace(/"/g, ''),
                                 accionEspecifica: String(parts[2] || 'General').trim().replace(/"/g, ''),
                                 title: String(parts[3] || 'Sin título').trim().replace(/"/g, ''),
@@ -924,29 +947,42 @@
             </div>
           )}
 
-          {/* Modal Crear Tarea */}
           {showCreateModal && (
             <div className="fixed inset-0 bg-slate-950/45 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-              <div className="bg-white border rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4">
+              <div className="bg-white border rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto">
                 <div className="flex justify-between items-center"><h3 className="font-bold text-slate-950">Asignar Nueva Tarea</h3><button onClick={() => setShowCreateModal(false)} className="text-slate-400">✕</button></div>
                 <form onSubmit={handleCreateTask} className="space-y-3">
                   <div>
-                    <label className="block text-xs font-semibold mb-1">Oficina Asignadora</label>
+                    <label className="block text-xs font-semibold mb-1">Dependencia / Gerencia Asignadora</label>
                     <select value={newTask.oficina} onChange={e => setNewTask({...newTask, oficina: e.target.value})} className="w-full border rounded-lg p-2 text-xs font-bold bg-slate-50">
-                      <option value="OTC">OTC (Tecnología Curricular)</option>
-                      <option value="OGF">OGF (Gestión de Formación)</option>
+                      {DEPENDENCIAS.map(d => <option key={d.codigo} value={d.codigo}>{d.nombre}</option>)}
                     </select>
                   </div>
                   <div><label className="block text-xs font-semibold mb-1">Proyecto</label><select value={newTask.project} onChange={e => setNewTask({...newTask, project: e.target.value})} className="w-full border rounded-lg p-2 text-xs">{PROYECTOS.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
                   <div><label className="block text-xs font-semibold mb-1">Acción Específica (Módulo / Curso)</label><input type="text" required value={newTask.accionEspecifica} onChange={e => setNewTask({...newTask, accionEspecifica: e.target.value})} className="w-full border rounded-lg p-2 text-xs" /></div>
                   <div><label className="block text-xs font-semibold mb-1">Actividad</label><input type="text" required value={newTask.title} onChange={e => setNewTask({...newTask, title: e.target.value})} className="w-full border rounded-lg p-2 text-xs" /></div>
                   <div><label className="block text-xs font-semibold mb-1">Producto Esperado</label><input type="text" value={newTask.producto} onChange={e => setNewTask({...newTask, producto: e.target.value})} className="w-full border rounded-lg p-2 text-xs" /></div>
+                  
                   <div>
-                    <label className="block text-xs font-semibold mb-1">Responsable</label>
-                    <select value={newTask.worker} onChange={e => setNewTask({...newTask, worker: e.target.value})} className="w-full border rounded-lg p-2 text-xs">
-                      {COLABORADORES.map(c => <option key={c.nombre} value={c.nombre}>{c.nombre}</option>)}
-                    </select>
+                    <label className="block text-xs font-semibold mb-1.5">Responsable(s) (Selecciona uno o más)</label>
+                    <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto border border-slate-200 p-2 rounded-lg bg-slate-50">
+                      {COLABORADORES.map(c => {
+                        const isChecked = newTask.workers.includes(c.nombre);
+                        return (
+                          <button 
+                            type="button" 
+                            key={`new-w-${c.nombre}`} 
+                            onClick={() => handleToggleNewTaskWorker(c.nombre)}
+                            className={`text-left p-1.5 rounded border text-[11px] font-medium flex items-center justify-between ${isChecked ? 'bg-indigo-50 border-indigo-400 text-indigo-950 font-bold' : 'bg-white text-slate-700'}`}
+                          >
+                            <span className="truncate">{c.nombre}</span>
+                            <span>{isChecked ? '✅' : '➕'}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
+
                   <div className="grid grid-cols-2 gap-2">
                     <div><label className="block text-xs font-semibold mb-1">Fecha Entrega</label><input type="date" value={newTask.endDate} onChange={e => setNewTask({...newTask, endDate: e.target.value})} className="w-full border rounded-lg p-2 text-xs" /></div>
                     <div><label className="block text-xs font-semibold mb-1">Tiempo Estimado</label><input type="text" placeholder="Ej: 3 días" value={newTask.tiempoEjecucion} onChange={e => setNewTask({...newTask, tiempoEjecucion: e.target.value})} className="w-full border rounded-lg p-2 text-xs" /></div>
@@ -1052,12 +1088,12 @@
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="border-b bg-slate-100 text-slate-600 text-xs font-bold uppercase sticky top-0">
-                          <th className="p-3">Oficina</th>
+                          <th className="p-3">Dependencia</th>
                           <th className="p-3">Fecha / Hora</th>
                           <th className="p-3">Proyecto</th>
                           <th className="p-3">Acción Específica</th>
                           <th className="p-3">Actividad</th>
-                          <th className="p-3">Responsable</th>
+                          <th className="p-3">Responsable(s)</th>
                           <th className="p-3">Estatus</th>
                         </tr>
                       </thead>
